@@ -156,5 +156,6 @@ def play_conversation():
 
 # ---------------- Server Configuration ----------------
 if __name__ == "__main__":
-    app.logger.info("Starting server using Waitress...")
-    serve(app, host='0.0.0.0', port=5000)
+    port = int(os.environ.get("PORT", 5000))  # Default to 5000 if PORT not set
+    app.logger.info(f"Starting server using Waitress on port {port}...")
+    serve(app, host="0.0.0.0", port=port)
