@@ -2,15 +2,10 @@ from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from deepgram import Deepgram
 from elevenlabs import ElevenLabs
-from llama_index.core import VectorStoreIndex, SimpleDirectoryReader
-from langchain.chains import LLMChain
-from langchain.prompts import PromptTemplate
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from waitress import serve
-import os
-import io
-import logging
+import logging,time,os,io
 
 # Load environment variables
 load_dotenv()
@@ -40,13 +35,14 @@ el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 # Initialize LangChain LLM
 llm = ChatOpenAI(temperature=0.7, model_name="gpt-4")
 
-# Load document for LlamaIndex
-try:
-    documents = SimpleDirectoryReader(input_files=["document1.txt"]).load_data()
-    index = VectorStoreIndex.from_documents(documents)
-except Exception as e:
-    app.logger.error(f"Error loading document: {str(e)}")
-    index = None
+# Predefined voices for different speakers
+VOICE_MAP = {
+    "Alice": "Xb7hH8MSUJpSbSDYk0k2",
+    "Bob": "pqHfZKP75CvOlQylNhV4",
+    "Charlie": "N2lVS1w4EtoT3dr4eOWO",
+}
+
+
 
 # ---------------- Speech to Text Endpoint ----------------
 @app.route('/stt', methods=['POST'])
@@ -58,30 +54,17 @@ async def speech_to_text_and_back():
     audio_data = audio_file.read()
 
     try:
-        # Deepgram transcription
         response = await dg_client.transcription.prerecorded(
             {"buffer": audio_data, "mimetype": "audio/wav"},
             {"punctuate": True, "language": "en"}
         )
         transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-        
-        # Convert the transcript to speech using ElevenLabs TTS
-        audio_generator = el_client.generate(
-            text=transcript,
-            voice={"id": "21m00Tcm4TlvDq8ikWAM"},  # Default voice ID
-            model="eleven_monolingual_v1"
-        )
-        audio_data = b''.join(audio_generator)
 
-        if not audio_data:
-            return jsonify({'error': 'Failed to generate audio'}), 500
+        return jsonify({'text': transcript})  # Fixing response format
 
-        # Send back the audio response (speech)
-        return Response(io.BytesIO(audio_data), mimetype="audio/mpeg")
-    
     except Exception as e:
-        app.logger.error(f"Speech-to-text or text-to-speech conversion failed: {str(e)}")
-        return jsonify({'error': f'Speech-to-text or text-to-speech conversion failed: {str(e)}'}), 500
+        app.logger.error(f"Speech-to-text conversion failed: {str(e)}")
+        return jsonify({'error': f'Speech-to-text conversion failed: {str(e)}'}), 500
 
 # ---------------- Text to Speech ----------------
 @app.route('/tts', methods=['POST'])
@@ -106,43 +89,70 @@ def text_to_speech():
             return jsonify({'error': 'Failed to generate audio'}), 500
 
         return Response(io.BytesIO(audio_data), mimetype="audio/mpeg")
-
     except Exception as e:
         app.logger.error(f"Text-to-speech conversion failed: {str(e)}")
         return jsonify({'error': f'Text-to-speech conversion failed: {str(e)}'}), 500
 
-# ---------------- Process Text using LlamaIndex & LangChain ----------------
-@app.route('/process-text', methods=['POST'])
-def process_text():
-    if index is None:
-        return jsonify({"error": "LlamaIndex is not initialized properly."}), 500
-
+#------------------- Text Processing ------------------------------------------
+@app.route('/play-conversation', methods=['POST'])
+def play_conversation():
     data = request.json
-    user_input = data.get('text', '')
+    conversation = data.get("conversation", [])
 
-    if not user_input:
-        return jsonify({"error": "No text provided"}), 400
+    # Validate that the conversation is a list and not empty
+    if not conversation or not isinstance(conversation, list):
+        return jsonify({'error': 'Invalid conversation format'}), 400
 
+    audio_clips = []
     try:
-        # LlamaIndex processing
-        query_engine = index.as_query_engine()
-        query_response = query_engine.query(user_input)
+        # Iterate through the conversation entries
+        for entry in conversation:
+            speaker = entry.get("speaker", "Unknown")
+            text = entry.get("text", "")
+            
+            # Check if the speaker is valid and available in the voice map
+            if speaker not in VOICE_MAP:
+                return jsonify({'error': f'Unknown speaker: {speaker}'}), 400
+            
+            voice_id = VOICE_MAP[speaker]
 
-        # LangChain LLM processing
-        prompt = PromptTemplate(
-            input_variables=["input_text"],
-            template="Process the following text: {input_text}"
+            # Log the speaker and text being processed
+            app.logger.info(f"Generating audio for speaker: {speaker}, text: {text}")
+
+            try:
+                # Generate audio for the speaker using ElevenLabs API
+                audio_generator = el_client.generate(
+                    text=text,
+                    voice={"id": voice_id},
+                    model="eleven_monolingual_v1"
+                )
+                audio_data = b''.join(audio_generator)
+
+                # If audio data is empty, return an error
+                if not audio_data:
+                    app.logger.error(f"Failed to generate audio for {speaker} with text: {text}")
+                    return jsonify({'error': f'Failed to generate audio for {speaker}'}), 500
+
+                # Add the generated audio data to the clips list
+                audio_clips.append((speaker, audio_data))
+
+                # Simulate a pause between speakers (1 second)
+                time.sleep(1)
+
+            except Exception as e:
+                app.logger.error(f"Error generating audio for {speaker}: {str(e)}")
+                return jsonify({'error': f'Failed to generate audio for {speaker}'}), 500
+
+        # Combine all the audio clips into one response and return as audio/mpeg
+        return Response(
+            io.BytesIO(b"".join([clip[1] for clip in audio_clips])),
+            mimetype="audio/mpeg"
         )
-        chain = LLMChain(llm=llm, prompt=prompt)
-        langchain_response = chain.run(input_text=query_response.response)
 
-        return jsonify({
-            "llama_index_response": query_response.response,
-            "langchain_response": langchain_response
-        })
     except Exception as e:
-        app.logger.error(f"Error processing text: {str(e)}")
-        return jsonify({"error": f"Text processing failed: {str(e)}"}), 500
+        # Catch any errors that occur in the main try block
+        app.logger.error(f"Conversation playback failed: {str(e)}")
+        return jsonify({'error': f'Conversation playback failed: {str(e)}'}), 500
 
 # ---------------- Server Configuration ----------------
 if __name__ == "__main__":

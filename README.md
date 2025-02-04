@@ -1,10 +1,10 @@
 # Speech to Text, Text to Speech, and Text Processing API
 
-This project includes the following functionality:
+This project provides APIs for the following functionalities:
 
-1. **Speech to Text**: Converts audio input to text using Deepgram API.
-2. **Text to Speech**: Converts text input into speech using ElevenLabs API.
-3. **Text Processing**: Processes input text using LlamaIndex and LangChain for NLP tasks.
+1. **Speech to Text**: Converts audio input into text using the Deepgram API.
+2. **Text to Speech**: Converts text input into speech using the ElevenLabs API.
+3. **Text Processing**: Processes input text and generates a conversation between 3 AI voices based on provided input, using LlamaIndex and LangChain for NLP tasks.
 
 ### Setup Instructions
 

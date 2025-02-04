@@ -2,55 +2,77 @@ import React, { useState } from "react";
 import axios from "axios";
 import "../App.css";
 
-const TextProcessing = () => {
-  const [text, setText] = useState("");
-  const [processedText, setProcessedText] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+const ConversationPlayer = () => {
+  const [conversation, setConversation] = useState([
+    { speaker: "Alice", text: "Hello, how are you?" },
+    { speaker: "Bob", text: "I'm doing well, thanks! How about you?" },
+    { speaker: "Charlie", text: "I'm great, thanks for asking!" },
+  ]);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [audioUrl, setAudioUrl] = useState(null);
 
-  const handleProcessText = async () => {
-    if (!text.trim()) {
-      alert("Please enter text first!");
-      return;
-    }
-
-    setIsLoading(true);
+  const handlePlayConversation = async () => {
+    setIsPlaying(true);
     try {
-      const response = await axios.post(
-        "http://localhost:5000/process-text",  // Update this endpoint as per your backend
-        { text }
-      );
-      setProcessedText(response.data.processedText);  // Assuming response contains 'processedText'
+      const response = await axios.post("http://127.0.0.1:5000/play-conversation", {
+        conversation,
+      }, { responseType: "blob" });
+
+      const url = URL.createObjectURL(response.data);
+      setAudioUrl(url);
     } catch (error) {
-      console.error("Text processing error:", error);
-      alert("Text processing failed");
+      console.error("Error playing conversation:", error);
+      alert("Failed to generate conversation audio");
     } finally {
-      setIsLoading(false);
+      setIsPlaying(false);
     }
+  };
+
+  const handleChange = (index, field, value) => {
+    const updatedConversation = [...conversation];
+    updatedConversation[index][field] = value;
+    setConversation(updatedConversation);
+  };
+
+  const handleAddLine = () => {
+    setConversation([...conversation, { speaker: "", text: "" }]);
   };
 
   return (
     <div className="container">
-      <h1>Text Processing</h1>
-      <p>Enhance your text with various processing tools.</p>
+      <h1>AI Voice Conversation</h1>
+      <p>Enter a conversation and listen to AI-generated voices.</p>
 
-      <textarea
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="Enter text for processing..."
-      />
+      {conversation.map((entry, index) => (
+        <div key={index} className="conversation-entry">
+          <input
+            type="text"
+            value={entry.speaker}
+            onChange={(e) => handleChange(index, "speaker", e.target.value)}
+            placeholder="Speaker"
+          />
+          <input
+            type="text"
+            value={entry.text}
+            onChange={(e) => handleChange(index, "text", e.target.value)}
+            placeholder="Text"
+          />
+        </div>
+      ))}
 
-      <div className="button-group">
-        <button onClick={handleProcessText} disabled={isLoading}>
-          {isLoading ? "Processing..." : "Process Text"}
-        </button>
-      </div>
-
-      <div className="output-box">
-        <h2>Processed Output</h2>
-        <p>{processedText || "Processed results will appear here..."}</p>
-      </div>
+      <button onClick={handleAddLine}>Add Line</button>
+      <button onClick={handlePlayConversation} disabled={isPlaying}>
+        {isPlaying ? "Generating..." : "Play Conversation"}
+      </button>
+      
+      {/* Place the audio player below the button */}
+      {audioUrl && (
+        <div className="audio-player">
+          <audio controls src={audioUrl} autoPlay />
+        </div>
+      )}
     </div>
   );
 };
 
-export default TextProcessing;
+export default ConversationPlayer;
