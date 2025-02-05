@@ -58,8 +58,14 @@ const SpeechToText = () => {
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );
-      setTranscribedText(response.data.text);  // Display transcribed text
-    } catch (error) {
+
+      if(response.data && response.data.text){
+        setTranscribedText(response.data.text);  // Display transcribed text
+    } else{
+        alert("Transcription failed.please try again");
+    }
+  }
+      catch (error) {
       console.error("Error processing speech:", error);
       alert("Failed to transcribe speech. Please try again.");
     } finally {

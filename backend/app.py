@@ -58,10 +58,12 @@ async def speech_to_text_and_back():
             {"buffer": audio_data, "mimetype": "audio/wav"},
             {"punctuate": True, "language": "en"}
         )
-        transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-
-        return jsonify({'text': transcript})  # Fixing response format
-
+        
+        if "results" in response and "channels" in response["results"]:
+            transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
+            return jsonify({'text': transcript})  # Fixing response format
+        
+        return jsonify({'error':'Failed to transcribe audio'}),500
     except Exception as e:
         app.logger.error(f"Speech-to-text conversion failed: {str(e)}")
         return jsonify({'error': f'Speech-to-text conversion failed: {str(e)}'}), 500
