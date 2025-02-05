@@ -14,7 +14,10 @@ const ConversationPlayer = () => {
   const handlePlayConversation = async () => {
     setIsPlaying(true);
     try {
-      const response = await axios.post("http://127.0.0.1:5000/play-conversation", {
+      const API_URL = process.env.REACT_APP_API_URL || "https://your-backend.onrender.com"; // Use environment variable or fallback
+      const response = await axios.post(    `${API_URL}/tts`,  // Use the Render backend URL
+ 
+      {
         conversation,
       }, { responseType: "blob" });
 

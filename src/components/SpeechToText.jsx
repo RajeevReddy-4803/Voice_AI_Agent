@@ -51,8 +51,10 @@ const SpeechToText = () => {
     formData.append("file", audioBlob, "recording.wav");  // Append the audio blob
 
     try {
+      const API_URL = process.env.REACT_APP_API_URL || "https://your-backend.onrender.com"; // Use environment variable or fallback
+
       const response = await axios.post(
-        "http://localhost:5000/stt",  // Adjust your backend endpoint here
+        `${API_URL}/tts`,  // Use the Render backend URL
         formData,
         { headers: { "Content-Type": "multipart/form-data" } }
       );

@@ -14,8 +14,9 @@ const TextToSpeech = () => {
 
     setIsLoading(true);
     try {
+      const API_URL = process.env.REACT_APP_API_URL || "https://your-backend.onrender.com"; // Use environment variable or fallback
       const response = await axios.post(
-        "http://localhost:5000/tts",  // Update your backend API endpoint here
+        `${API_URL}/tts`,  // Use the Render backend URL
         { text },
         { responseType: "blob" }
       );
