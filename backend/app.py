@@ -12,7 +12,7 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app,origins=["https://voice-ai-agent-git-main-rajeevs-projects-452fbd07.vercel.app"])
+CORS(app,origins=["https://voice-ai-agent-sand.vercel.app"])
 
 # Configure Logging
 logging.basicConfig(level=logging.INFO)
