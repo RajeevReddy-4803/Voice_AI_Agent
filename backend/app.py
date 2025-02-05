@@ -94,7 +94,7 @@ def text_to_speech():
         return jsonify({'error': f'Text-to-speech conversion failed: {str(e)}'}), 500
 
 #------------------- Text Processing ------------------------------------------
-@app.route('/play-conversation', methods=['POST'])
+@app.route('/process', methods=['POST'])
 def play_conversation():
     data = request.json
     conversation = data.get("conversation", [])

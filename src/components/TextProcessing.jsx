@@ -16,7 +16,7 @@ const ConversationPlayer = () => {
     try {
       const API_URL = process.env.REACT_APP_API_URL || "https://voice-ai-agent.onrender.com"; // Use environment variable or fallback
       const response = await axios.post(
-        `${API_URL}/tts`,  // Use the Render backend URL
+        `${API_URL}/process`,  // Use the Render backend URL
  
       {
         conversation,
