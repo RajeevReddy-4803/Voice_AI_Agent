@@ -1,82 +1,245 @@
-import React, { useState } from "react";
-import axios from "axios";
-import "../App.css";
+import React, { useState, useCallback } from 'react';
+import { useLanguage } from '../context/LanguageContext';
+import { FaFileUpload, FaDownload, FaTrash, FaChartBar, FaLanguage, FaMagic, FaHistory } from 'react-icons/fa';
+import VirtualizedList from './VirtualizedList';
 
-const ConversationPlayer = () => {
-  const [conversation, setConversation] = useState([
-    { speaker: "Alice", text: "Hello, how are you?" },
-    { speaker: "Bob", text: "I'm doing well, thanks! How about you?" },
-    { speaker: "Charlie", text: "I'm great, thanks for asking!" },
-  ]);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [audioUrl, setAudioUrl] = useState(null);
+const TextProcessing = () => {
+  const { translations } = useLanguage();
+  const [text, setText] = useState('');
+  const [processedText, setProcessedText] = useState('');
+  const [analysis, setAnalysis] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  const [processingType, setProcessingType] = useState('summarize');
 
-  const handlePlayConversation = async () => {
-    setIsPlaying(true);
-    try {
-      const API_URL = process.env.REACT_APP_API_URL || "https://voice-ai-agent.onrender.com"; // Use environment variable or fallback
-      const response = await axios.post(
-        `${API_URL}/process`,  // Use the Render backend URL
- 
-      {
-        conversation,
-      }, { responseType: "blob" ,headers: { "Content-Type": "application/json" } });
+  const processingOptions = [
+    { id: 'summarize', name: 'Summarize', icon: <FaChartBar /> },
+    { id: 'translate', name: 'Translate', icon: <FaLanguage /> },
+    { id: 'enhance', name: 'Enhance', icon: <FaMagic /> }
+  ];
 
-      const url = URL.createObjectURL(response.data);
-      setAudioUrl(url);
-    } catch (error) {
-      console.error("Error playing conversation:", error);
-      alert("Failed to generate conversation audio");
-    } finally {
-      setIsPlaying(false);
+  const handleTextChange = (e) => {
+    setText(e.target.value);
+  };
+
+  const handleFileUpload = useCallback((event) => {
+    const file = event.target.files[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        setText(e.target.result);
+      };
+      reader.readAsText(file);
     }
-  };
+  }, []);
 
-  const handleChange = (index, field, value) => {
-    const updatedConversation = [...conversation];
-    updatedConversation[index][field] = value;
-    setConversation(updatedConversation);
-  };
+  const processText = useCallback(async () => {
+    if (!text) return;
 
-  const handleAddLine = () => {
-    setConversation([...conversation, { speaker: "", text: "" }]);
-  };
+    // Simulate processing delay
+    const startTime = Date.now();
+    setAnalysis({ status: 'processing' });
+
+    try {
+      // Here you would typically make an API call to your backend
+      // For now, we'll simulate the processing
+      await new Promise(resolve => setTimeout(resolve, 1000));
+
+      const wordCount = text.split(/\s+/).length;
+      const charCount = text.length;
+      const sentenceCount = text.split(/[.!?]+/).length;
+      const language = selectedLanguage;
+
+      const result = {
+        processedText: `Processed: ${text}`,
+        metrics: {
+          wordCount,
+          charCount,
+          sentenceCount,
+          processingTime: Date.now() - startTime
+        },
+        language
+      };
+
+      setProcessedText(result.processedText);
+      setAnalysis(result);
+      setHistory(prev => [{
+        id: Date.now(),
+        originalText: text,
+        processedText: result.processedText,
+        metrics: result.metrics,
+        type: processingType,
+        language,
+        timestamp: new Date().toISOString()
+      }, ...prev]);
+    } catch (error) {
+      setAnalysis({ status: 'error', message: error.message });
+    }
+  }, [text, selectedLanguage, processingType]);
+
+  const handleDownload = useCallback((item) => {
+    const content = `Original Text:\n${item.originalText}\n\nProcessed Text:\n${item.processedText}\n\nMetrics:\nWord Count: ${item.metrics.wordCount}\nCharacter Count: ${item.metrics.charCount}\nSentence Count: ${item.metrics.sentenceCount}\nProcessing Time: ${item.metrics.processingTime}ms`;
+    
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `text-processing-${item.id}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, []);
+
+  const handleDelete = useCallback((id) => {
+    setHistory(prev => prev.filter(item => item.id !== id));
+  }, []);
+
+  const renderHistoryItem = useCallback((item) => (
+    <div className="history-item">
+      <div className="history-content">
+        <div className="history-header">
+          <span className="processing-badge">
+            {processingOptions.find(opt => opt.id === item.type)?.icon}
+            {processingOptions.find(opt => opt.id === item.type)?.name}
+          </span>
+          <span className="language-badge">{item.language}</span>
+          <span className="timestamp">{new Date(item.timestamp).toLocaleString()}</span>
+        </div>
+        <div className="text-preview">
+          <p className="original-text">{item.originalText.substring(0, 100)}...</p>
+          <p className="processed-text">{item.processedText.substring(0, 100)}...</p>
+        </div>
+        <div className="metrics">
+          <span>Words: {item.metrics.wordCount}</span>
+          <span>Chars: {item.metrics.charCount}</span>
+          <span>Sentences: {item.metrics.sentenceCount}</span>
+          <span>Time: {item.metrics.processingTime}ms</span>
+        </div>
+      </div>
+      <div className="history-actions">
+        <button
+          className="action-button download"
+          onClick={() => handleDownload(item)}
+          title="Download"
+        >
+          <FaDownload />
+        </button>
+        <button
+          className="action-button delete"
+          onClick={() => handleDelete(item.id)}
+          title="Delete"
+        >
+          <FaTrash />
+        </button>
+      </div>
+    </div>
+  ), [processingOptions, handleDownload, handleDelete]);
 
   return (
-    <div className="container">
-      <h1>AI Voice Conversation</h1>
-      <p>Enter a conversation and listen to AI-generated voices.</p>
-
-      {conversation.map((entry, index) => (
-        <div key={index} className="conversation-entry">
-          <input
-            type="text"
-            value={entry.speaker}
-            onChange={(e) => handleChange(index, "speaker", e.target.value)}
-            placeholder="Speaker"
-          />
-          <input
-            type="text"
-            value={entry.text}
-            onChange={(e) => handleChange(index, "text", e.target.value)}
-            placeholder="Text"
-          />
+    <div className="text-processing-container">
+      <div className="control-panel">
+        <div className="processing-options">
+          {processingOptions.map(option => (
+            <button
+              key={option.id}
+              className={`processing-option ${processingType === option.id ? 'active' : ''}`}
+              onClick={() => setProcessingType(option.id)}
+            >
+              {option.icon}
+              {option.name}
+            </button>
+          ))}
         </div>
-      ))}
+        <div className="language-selector">
+          <select
+            value={selectedLanguage}
+            onChange={(e) => setSelectedLanguage(e.target.value)}
+            className="language-select"
+          >
+            <option value="en">English 🇺🇸</option>
+            <option value="es">Español 🇪🇸</option>
+            <option value="fr">Français 🇫🇷</option>
+          </select>
+        </div>
+      </div>
 
-      <button onClick={handleAddLine}>Add Line</button>
-      <button onClick={handlePlayConversation} disabled={isPlaying}>
-        {isPlaying ? "Generating..." : "Play Conversation"}
-      </button>
-      
-      {/* Place the audio player below the button */}
-      {audioUrl && (
-        <div className="audio-player">
-          <audio controls src={audioUrl} autoPlay />
+      <div className="text-input-panel">
+        <div className="file-upload">
+          <label className="upload-button">
+            <FaFileUpload />
+            Upload Text File
+            <input
+              type="file"
+              accept=".txt,.doc,.docx"
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+        </div>
+        <textarea
+          value={text}
+          onChange={handleTextChange}
+          placeholder="Enter or paste your text here..."
+          className="text-input"
+        />
+        <button
+          className="process-button"
+          onClick={processText}
+          disabled={!text || analysis?.status === 'processing'}
+        >
+          {analysis?.status === 'processing' ? 'Processing...' : 'Process Text'}
+        </button>
+      </div>
+
+      {analysis && analysis.status !== 'processing' && (
+        <div className="analysis-panel">
+          <div className="processed-text">
+            <h3>Processed Result</h3>
+            <div className="result-box">
+              {processedText}
+            </div>
+          </div>
+          <div className="metrics-panel">
+            <h3>Text Analysis</h3>
+            <div className="metrics-grid">
+              <div className="metric-item">
+                <span className="metric-value">{analysis.metrics?.wordCount}</span>
+                <span className="metric-label">Words</span>
+              </div>
+              <div className="metric-item">
+                <span className="metric-value">{analysis.metrics?.charCount}</span>
+                <span className="metric-label">Characters</span>
+              </div>
+              <div className="metric-item">
+                <span className="metric-value">{analysis.metrics?.sentenceCount}</span>
+                <span className="metric-label">Sentences</span>
+              </div>
+              <div className="metric-item">
+                <span className="metric-value">{analysis.metrics?.processingTime}ms</span>
+                <span className="metric-label">Processing Time</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
+
+      <div className="history-panel">
+        <div className="history-header">
+          <h3>
+            <FaHistory /> Processing History
+          </h3>
+        </div>
+        <div className="virtualized-container">
+          <VirtualizedList
+            items={history}
+            renderItem={renderHistoryItem}
+            itemHeight={180}
+          />
+        </div>
+      </div>
     </div>
   );
 };
 
-export default ConversationPlayer;
+export default TextProcessing;

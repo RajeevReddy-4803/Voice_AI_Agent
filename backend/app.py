@@ -5,18 +5,23 @@ from elevenlabs import ElevenLabs
 from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 from waitress import serve
-import logging,time,os,io
+import logging, time, os, io
+from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 
 # Load environment variables
 load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app,origins=["https://voice-ai-agent-sand.vercel.app"])
+CORS(app, origins=["*"])  # Update this with your frontend URL in production
 
 # Configure Logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger()
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("NexusVoice")
 
 # Initialize API Clients
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
@@ -24,7 +29,7 @@ ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not all([DEEPGRAM_API_KEY, ELEVENLABS_API_KEY, OPENAI_API_KEY]):
-    app.logger.error("API keys are missing! Check your environment variables.")
+    logger.error("API keys are missing! Check your environment variables.")
     exit(1)
 
 os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
@@ -32,135 +37,183 @@ os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
 dg_client = Deepgram(DEEPGRAM_API_KEY)
 el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 
-# Initialize LangChain LLM
-llm = ChatOpenAI(temperature=0.7, model_name="gpt-4")
+# Initialize LangChain LLM with optimized settings
+llm = ChatOpenAI(
+    temperature=0.7,
+    model_name="gpt-4",
+    max_tokens=1000,
+    request_timeout=30
+)
 
-# Predefined voices for different speakers
-VOICE_MAP = {
-    "Alice": "Xb7hH8MSUJpSbSDYk0k2",
-    "Bob": "pqHfZKP75CvOlQylNhV4",
-    "Charlie": "N2lVS1w4EtoT3dr4eOWO",
+# Supported languages with their display names and flags
+SUPPORTED_LANGUAGES = {
+    "en": {"name": "English", "flag": "🇺🇸"},
+    "es": {"name": "Spanish", "flag": "🇪🇸"},
+    "fr": {"name": "French", "flag": "🇫🇷"},
+    "de": {"name": "German", "flag": "🇩🇪"},
+    "it": {"name": "Italian", "flag": "🇮🇹"}
 }
 
+# Predefined voices for different speakers with language support
+VOICE_MAP = {
+    "Alice": {
+        "en": "Xb7hH8MSUJpSbSDYk0k2",  # Professional female voice
+        "es": "pqHfZKP75CvOlQylNhV4",  # Spanish female voice
+        "fr": "N2lVS1w4EtoT3dr4eOWO",  # French female voice
+        "de": "Xb7hH8MSUJpSbSDYk0k2",  # German female voice
+        "it": "pqHfZKP75CvOlQylNhV4"   # Italian female voice
+    },
+    "Bob": {
+        "en": "pqHfZKP75CvOlQylNhV4",  # Professional male voice
+        "es": "N2lVS1w4EtoT3dr4eOWO",  # Spanish male voice
+        "fr": "Xb7hH8MSUJpSbSDYk0k2",  # French male voice
+        "de": "pqHfZKP75CvOlQylNhV4",  # German male voice
+        "it": "N2lVS1w4EtoT3dr4eOWO"   # Italian male voice
+    }
+}
 
+# Thread pool for concurrent processing
+executor = ThreadPoolExecutor(max_workers=10)
+
+# Cache for frequently used responses
+@lru_cache(maxsize=100)
+def get_cached_tts(text, voice_id):
+    return el_client.generate(
+        text=text,
+        voice={"id": voice_id},
+        model="eleven_multilingual_v2"
+    )
+
+# ---------------- Health Check Endpoint ----------------
+@app.route('/health', methods=['GET'])
+def health_check():
+    return jsonify({
+        'status': 'healthy',
+        'service': 'NexusVoice AI',
+        'version': '1.0.0',
+        'supported_languages': SUPPORTED_LANGUAGES
+    })
 
 # ---------------- Speech to Text Endpoint ----------------
-@app.route('/stt', methods=['POST'])
-async def speech_to_text_and_back():
+@app.route('/api/stt', methods=['POST'])
+async def speech_to_text():
     if 'file' not in request.files:
-        return jsonify({'error': 'No file provided'}), 400
+        return jsonify({'error': 'No audio file provided'}), 400
 
     audio_file = request.files['file']
-    audio_data = audio_file.read()
+    language = request.form.get('language', 'en')
+    
+    if language not in SUPPORTED_LANGUAGES:
+        return jsonify({
+            'error': 'Unsupported language',
+            'supported_languages': SUPPORTED_LANGUAGES
+        }), 400
 
     try:
+        audio_data = audio_file.read()
         response = await dg_client.transcription.prerecorded(
             {"buffer": audio_data, "mimetype": "audio/wav"},
-            {"punctuate": True, "language": "en"}
+            {
+                "punctuate": True,
+                "language": language,
+                "model": "nova-2",
+                "smart_format": True,
+                "diarize": True
+            }
         )
         
         if "results" in response and "channels" in response["results"]:
             transcript = response["results"]["channels"][0]["alternatives"][0]["transcript"]
-            return jsonify({'text': transcript})  # Fixing response format
+            confidence = response["results"]["channels"][0]["alternatives"][0]["confidence"]
+            
+            return jsonify({
+                'text': transcript,
+                'confidence': confidence,
+                'language': language,
+                'language_name': SUPPORTED_LANGUAGES[language]['name'],
+                'language_flag': SUPPORTED_LANGUAGES[language]['flag']
+            })
         else:
-            app.logger.error(f"Transcription response format is incorrect: {response}")
-            return jsonify({'error': 'Transcription failed, no result'}), 500
+            logger.error(f"Transcription response format is incorrect: {response}")
+            return jsonify({'error': 'Transcription failed'}), 500
 
-        
     except Exception as e:
-        app.logger.error(f"Error processing speech-to-text: {str(e)}")  # Detailed error logging
-        return jsonify({'error': f'Speech-to-text conversion failed: {str(e)}'}), 500
+        logger.error(f"Error processing speech-to-text: {str(e)}")
+        return jsonify({'error': 'Speech-to-text conversion failed'}), 500
 
-# ---------------- Text to Speech ----------------
-@app.route('/tts', methods=['POST'])
+# ---------------- Text to Speech Endpoint ----------------
+@app.route('/api/tts', methods=['POST'])
 def text_to_speech():
-    text = request.json.get('text', '').strip()
+    data = request.json
+    text = data.get('text', '').strip()
+    language = data.get('language', 'en')
+    voice_id = data.get('voice_id', VOICE_MAP['Alice'][language])
 
     if not text:
-        return jsonify({'error': 'Empty text'}), 400
-
-    voice_id = "ELEVEN_LABS_VOICE_ID"  # Default voice ID (you can change it)
+        return jsonify({'error': 'No text provided'}), 400
 
     try:
-        # ElevenLabs text-to-speech conversion
-        audio_generator = el_client.generate(
-            text=text,
-            voice={"id": voice_id},
-            model="eleven_monolingual_v1"
-        )
+        audio_generator = get_cached_tts(text, voice_id)
         audio_data = b''.join(audio_generator)
 
         if not audio_data:
             return jsonify({'error': 'Failed to generate audio'}), 500
 
-        return Response(io.BytesIO(audio_data), mimetype="audio/mpeg")
-    except Exception as e:
-        app.logger.error(f"Text-to-speech conversion failed: {str(e)}")
-        return jsonify({'error': f'Text-to-speech conversion failed: {str(e)}'}), 500
-
-#------------------- Text Processing ------------------------------------------
-@app.route('/process', methods=['POST'])
-def play_conversation():
-    data = request.json
-    conversation = data.get("conversation", [])
-
-    # Validate that the conversation is a list and not empty
-    if not conversation or not isinstance(conversation, list):
-        return jsonify({'error': 'Invalid conversation format'}), 400
-
-    audio_clips = []
-    try:
-        # Iterate through the conversation entries
-        for entry in conversation:
-            speaker = entry.get("speaker", "Unknown")
-            text = entry.get("text", "")
-            
-            # Check if the speaker is valid and available in the voice map
-            if speaker not in VOICE_MAP:
-                return jsonify({'error': f'Unknown speaker: {speaker}'}), 400
-            
-            voice_id = VOICE_MAP[speaker]
-
-            # Log the speaker and text being processed
-            app.logger.info(f"Generating audio for speaker: {speaker}, text: {text}")
-
-            try:
-                # Generate audio for the speaker using ElevenLabs API
-                audio_generator = el_client.generate(
-                    text=text,
-                    voice={"id": voice_id},
-                    model="eleven_monolingual_v1"
-                )
-                audio_data = b''.join(audio_generator)
-
-                # If audio data is empty, return an error
-                if not audio_data:
-                    app.logger.error(f"Failed to generate audio for {speaker} with text: {text}")
-                    return jsonify({'error': f'Failed to generate audio for {speaker}'}), 500
-
-                # Add the generated audio data to the clips list
-                audio_clips.append((speaker, audio_data))
-
-                # Simulate a pause between speakers (1 second)
-                time.sleep(1)
-
-            except Exception as e:
-                app.logger.error(f"Error generating audio for {speaker}: {str(e)}")
-                return jsonify({'error': f'Failed to generate audio for {speaker}'}), 500
-
-        # Combine all the audio clips into one response and return as audio/mpeg
         return Response(
-            io.BytesIO(b"".join([clip[1] for clip in audio_clips])),
-            mimetype="audio/mpeg"
+            io.BytesIO(audio_data),
+            mimetype="audio/mpeg",
+            headers={
+                'Content-Disposition': 'attachment; filename=nexusvoice_audio.mp3'
+            }
         )
+    except Exception as e:
+        logger.error(f"Text-to-speech conversion failed: {str(e)}")
+        return jsonify({'error': 'Text-to-speech conversion failed'}), 500
+
+# ---------------- Text Processing Endpoint ----------------
+@app.route('/api/process', methods=['POST'])
+def process_text():
+    data = request.json
+    text = data.get('text', '').strip()
+    language = data.get('language', 'en')
+    processing_type = data.get('type', 'summarize')
+
+    if not text:
+        return jsonify({'error': 'No text provided'}), 400
+
+    if language not in SUPPORTED_LANGUAGES:
+        return jsonify({
+            'error': 'Unsupported language',
+            'supported_languages': SUPPORTED_LANGUAGES
+        }), 400
+
+    try:
+        # Process text based on type
+        if processing_type == 'summarize':
+            prompt = f"Summarize the following text in {SUPPORTED_LANGUAGES[language]['name']}:\n\n{text}"
+        elif processing_type == 'translate':
+            prompt = f"Translate the following text to {SUPPORTED_LANGUAGES[language]['name']}:\n\n{text}"
+        else:
+            prompt = f"Process the following text in {SUPPORTED_LANGUAGES[language]['name']}:\n\n{text}"
+
+        response = llm.invoke(prompt)
+        processed_text = response.content
+
+        return jsonify({
+            'original_text': text,
+            'processed_text': processed_text,
+            'language': language,
+            'language_name': SUPPORTED_LANGUAGES[language]['name'],
+            'language_flag': SUPPORTED_LANGUAGES[language]['flag'],
+            'processing_type': processing_type
+        })
 
     except Exception as e:
-        # Catch any errors that occur in the main try block
-        app.logger.error(f"Conversation playback failed: {str(e)}")
-        return jsonify({'error': f'Conversation playback failed: {str(e)}'}), 500
+        logger.error(f"Text processing failed: {str(e)}")
+        return jsonify({'error': 'Text processing failed'}), 500
 
 # ---------------- Server Configuration ----------------
 if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))  # Default to 5000 if PORT not set
-    app.logger.info(f"Starting server using Waitress on port {port}...")
-    serve(app, host="0.0.0.0", port=port)
+    port = int(os.environ.get("PORT", 5000))
+    logger.info(f"Starting NexusVoice AI server on port {port}...")
+    serve(app, host="0.0.0.0", port=port, threads=16)
