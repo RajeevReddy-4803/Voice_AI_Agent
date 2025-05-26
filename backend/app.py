@@ -21,7 +21,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger("NexusVoice")
+logger = logging.getLogger("Nexus Voice AI")
 
 # Initialize API Clients
 DEEPGRAM_API_KEY = os.getenv("DEEPGRAM_API_KEY")
@@ -89,7 +89,7 @@ def get_cached_tts(text, voice_id):
 def health_check():
     return jsonify({
         'status': 'healthy',
-        'service': 'NexusVoice AI',
+        'service': 'Nexus Voice AI',
         'version': '1.0.0',
         'supported_languages': SUPPORTED_LANGUAGES
     })
@@ -215,5 +215,5 @@ def process_text():
 # ---------------- Server Configuration ----------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
-    logger.info(f"Starting NexusVoice AI server on port {port}...")
+    logger.info(f"Starting Nexus Voice AI server on port {port}...")
     serve(app, host="0.0.0.0", port=port, threads=16)
