@@ -14,7 +14,7 @@ load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["*"])  # Update this with your frontend URL in production
+CORS(app, origins=["https://voice-ai-agent-phi.vercel.app", "https://voice-ai-agent.onrender.com"])
 
 # Configure Logging
 logging.basicConfig(
