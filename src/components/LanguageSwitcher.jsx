@@ -31,6 +31,7 @@ const LanguageSwitcher = () => {
   }, []);
 
   const handleLanguageChange = (lang) => {
+    alert(`Language changed to: ${lang}`);
     setCurrentLanguage(lang);
     setIsOpen(false);
   };
