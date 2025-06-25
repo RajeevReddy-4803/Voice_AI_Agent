@@ -18,7 +18,7 @@ const AppContent = () => {
         <div className="header-content">
           <div className="logo">
             <FaRobot size={32} />
-            <h1>NexusVoice AI</h1>
+            <h1>Nexus Voice AI</h1>
           </div>
           <div className="header-controls">
             <nav className="main-nav">
@@ -60,7 +60,7 @@ const AppContent = () => {
           </div>
         </div>
         <div className="footer-bottom">
-          <p>&copy; 2024 NexusVoice AI. {translations.allRightsReserved}</p>
+          <p>&copy; 2024 Nexus Voice AI. {translations.allRightsReserved}</p>
         </div>
       </footer>
     </div>

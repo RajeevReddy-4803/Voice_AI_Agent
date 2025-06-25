@@ -8,14 +8,19 @@ from waitress import serve
 import logging, time, os, io
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
+import requests
 
 # Load environment variables
 load_dotenv()
 
 # Initialize Flask app
 app = Flask(__name__)
-CORS(app, origins=["https://voice-ai-agent-phi.vercel.app", "https://voice-ai-agent.onrender.com"])
-
+CORS(app, origins=[
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://voice-ai-agent-phi.vercel.app",
+    "https://voice-ai-agent.onrender.com"
+])
 # Configure Logging
 logging.basicConfig(
     level=logging.INFO,
@@ -40,7 +45,7 @@ el_client = ElevenLabs(api_key=ELEVENLABS_API_KEY)
 # Initialize LangChain LLM with optimized settings
 llm = ChatOpenAI(
     temperature=0.7,
-    model_name="gpt-4",
+    model_name="gpt-3.5-turbo",
     max_tokens=1000,
     request_timeout=30
 )
@@ -188,16 +193,35 @@ def process_text():
         }), 400
 
     try:
+        # n8n workflow integration
+        if processing_type == 'n8n':
+            n8n_webhook_url = os.getenv("N8N_WEBHOOK_URL")
+            if not n8n_webhook_url or n8n_webhook_url == "YOUR_N8N_WEBHOOK_URL_HERE":
+                logger.warning("N8N_WEBHOOK_URL is not set. Returning placeholder response.")
+                processed_text = "n8n workflow is not configured. Please set the N8N_WEBHOOK_URL environment variable."
+            else:
+                payload = {
+                    "text": text,
+                    "language": language,
+                    "processing_type": processing_type
+                }
+                response = requests.post(n8n_webhook_url, json=payload)
+                response.raise_for_status()
+                processed_text = response.json().get("processed_text", "Error processing with n8n")
+
         # Process text based on type
-        if processing_type == 'summarize':
+        elif processing_type == 'summarize':
             prompt = f"Summarize the following text in {SUPPORTED_LANGUAGES[language]['name']}:\n\n{text}"
+            response = llm.invoke(prompt)
+            processed_text = response.content
         elif processing_type == 'translate':
             prompt = f"Translate the following text to {SUPPORTED_LANGUAGES[language]['name']}:\n\n{text}"
-        else:
+            response = llm.invoke(prompt)
+            processed_text = response.content
+        else: # Fallback for 'enhance' and other types
             prompt = f"Process the following text in {SUPPORTED_LANGUAGES[language]['name']}:\n\n{text}"
-
-        response = llm.invoke(prompt)
-        processed_text = response.content
+            response = llm.invoke(prompt)
+            processed_text = response.content
 
         return jsonify({
             'original_text': text,
@@ -210,7 +234,7 @@ def process_text():
 
     except Exception as e:
         logger.error(f"Text processing failed: {str(e)}")
-        return jsonify({'error': 'Text processing failed'}), 500
+        return jsonify({'error': f"Text processing failed: {str(e)}"}), 500
 
 # ---------------- Server Configuration ----------------
 if __name__ == "__main__":

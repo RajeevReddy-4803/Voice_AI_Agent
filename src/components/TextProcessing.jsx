@@ -1,21 +1,21 @@
 import React, { useState, useCallback } from 'react';
 import { useLanguage } from '../context/LanguageContext';
-import { FaFileUpload, FaDownload, FaTrash, FaChartBar, FaLanguage, FaMagic, FaHistory } from 'react-icons/fa';
+import { FaFileUpload, FaDownload, FaTrash, FaChartBar, FaLanguage, FaMagic, FaHistory, FaServer } from 'react-icons/fa';
 import VirtualizedList from './VirtualizedList';
 
 const TextProcessing = () => {
-  const { translations } = useLanguage();
+  const { currentLanguage, translations } = useLanguage();
   const [text, setText] = useState('');
   const [processedText, setProcessedText] = useState('');
   const [analysis, setAnalysis] = useState(null);
   const [history, setHistory] = useState([]);
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
   const [processingType, setProcessingType] = useState('summarize');
 
   const processingOptions = [
     { id: 'summarize', name: 'Summarize', icon: <FaChartBar /> },
     { id: 'translate', name: 'Translate', icon: <FaLanguage /> },
-    { id: 'enhance', name: 'Enhance', icon: <FaMagic /> }
+    { id: 'enhance', name: 'Enhance', icon: <FaMagic /> },
+    { id: 'n8n', name: 'n8n Workflow', icon: <FaServer /> }
   ];
 
   const handleTextChange = (e) => {
@@ -36,46 +36,57 @@ const TextProcessing = () => {
   const processText = useCallback(async () => {
     if (!text) return;
 
-    // Simulate processing delay
-    const startTime = Date.now();
     setAnalysis({ status: 'processing' });
+    const startTime = Date.now();
 
     try {
-      // Here you would typically make an API call to your backend
-      // For now, we'll simulate the processing
-      await new Promise(resolve => setTimeout(resolve, 1000));
-
-      const wordCount = text.split(/\s+/).length;
-      const charCount = text.length;
-      const sentenceCount = text.split(/[.!?]+/).length;
-      const language = selectedLanguage;
-
-      const result = {
-        processedText: `Processed: ${text}`,
-        metrics: {
-          wordCount,
-          charCount,
-          sentenceCount,
-          processingTime: Date.now() - startTime
+      const response = await fetch('http://localhost:5000/api/process', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
         },
-        language
+        body: JSON.stringify({
+          text,
+          language: currentLanguage,
+          type: processingType,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const endTime = Date.now();
+
+      const analysisResult = {
+        processedText: result.processed_text,
+        metrics: {
+          wordCount: text.split(/\s+/).filter(Boolean).length,
+          charCount: text.length,
+          processingTime: endTime - startTime,
+        },
+        language: result.language,
+        status: 'completed'
       };
 
-      setProcessedText(result.processedText);
-      setAnalysis(result);
+      setProcessedText(result.processed_text);
+      setAnalysis(analysisResult);
       setHistory(prev => [{
         id: Date.now(),
         originalText: text,
-        processedText: result.processedText,
-        metrics: result.metrics,
+        processedText: result.processed_text,
+        metrics: analysisResult.metrics,
         type: processingType,
-        language,
+        language: result.language,
         timestamp: new Date().toISOString()
       }, ...prev]);
+
     } catch (error) {
+      console.error("Error processing text:", error);
       setAnalysis({ status: 'error', message: error.message });
     }
-  }, [text, selectedLanguage, processingType]);
+  }, [text, currentLanguage, processingType]);
 
   const handleDownload = useCallback((item) => {
     const content = `Original Text:\n${item.originalText}\n\nProcessed Text:\n${item.processedText}\n\nMetrics:\nWord Count: ${item.metrics.wordCount}\nCharacter Count: ${item.metrics.charCount}\nSentence Count: ${item.metrics.sentenceCount}\nProcessing Time: ${item.metrics.processingTime}ms`;
@@ -153,13 +164,15 @@ const TextProcessing = () => {
         </div>
         <div className="language-selector">
           <select
-            value={selectedLanguage}
-            onChange={(e) => setSelectedLanguage(e.target.value)}
+            value={currentLanguage}
+            disabled
             className="language-select"
           >
             <option value="en">English 🇺🇸</option>
             <option value="es">Español 🇪🇸</option>
             <option value="fr">Français 🇫🇷</option>
+            <option value="de">German 🇩🇪</option>
+            <option value="it">Italian 🇮🇹</option>
           </select>
         </div>
       </div>

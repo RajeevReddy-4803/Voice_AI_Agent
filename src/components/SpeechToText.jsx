@@ -1,32 +1,93 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { FaMicrophone, FaStop, FaDownload, FaTrash } from 'react-icons/fa';
 import VirtualizedList from './VirtualizedList';
 
 const SpeechToText = () => {
-  const { translations } = useLanguage();
+  const { currentLanguage, translations } = useLanguage();
   const [isRecording, setIsRecording] = useState(false);
   const [transcriptions, setTranscriptions] = useState([]);
   const [currentText, setCurrentText] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState('en');
+  
+  const recognitionRef = useRef(null);
+  const isRecordingRef = useRef(false);
+
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  useEffect(() => {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      recognitionRef.current = new SpeechRecognition();
+      recognitionRef.current.continuous = true;
+      recognitionRef.current.interimResults = true;
+      recognitionRef.current.lang = currentLanguage;
+
+      recognitionRef.current.onresult = (event) => {
+        let interimTranscript = '';
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            interimTranscript += event.results[i][0].transcript;
+          }
+        }
+        setCurrentText(finalTranscript + interimTranscript);
+      };
+
+      recognitionRef.current.onerror = (event) => {
+        console.error("Speech recognition error", event.error);
+        setIsRecording(false);
+      };
+
+      recognitionRef.current.onend = () => {
+        if (isRecordingRef.current) {
+          // Restart recognition if it stops unexpectedly
+          recognitionRef.current.start();
+        }
+      };
+    } else {
+      console.error("Speech Recognition not supported in this browser.");
+    }
+
+    return () => {
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+    };
+  }, [currentLanguage]);
+
+  useEffect(() => {
+    if (recognitionRef.current) {
+      recognitionRef.current.lang = currentLanguage;
+    }
+  }, [currentLanguage]);
 
   const handleStartRecording = useCallback(() => {
-    setIsRecording(true);
-    // Initialize speech recognition here
+    if (recognitionRef.current) {
+      setCurrentText('');
+      setIsRecording(true);
+      recognitionRef.current.start();
+    }
   }, []);
 
   const handleStopRecording = useCallback(() => {
-    setIsRecording(false);
-    if (currentText) {
-      setTranscriptions(prev => [...prev, {
-        id: Date.now(),
-        text: currentText,
-        language: selectedLanguage,
-        timestamp: new Date().toISOString()
-      }]);
-      setCurrentText('');
+    if (recognitionRef.current) {
+      setIsRecording(false);
+      recognitionRef.current.stop();
+      if (currentText) {
+        setTranscriptions(prev => [...prev, {
+          id: Date.now(),
+          text: currentText,
+          language: currentLanguage,
+          timestamp: new Date().toISOString()
+        }]);
+        setCurrentText('');
+      }
     }
-  }, [currentText, selectedLanguage]);
+  }, [currentText, currentLanguage]);
 
   const handleDownload = useCallback((transcription) => {
     const blob = new Blob([transcription.text], { type: 'text/plain' });
@@ -75,17 +136,6 @@ const SpeechToText = () => {
   return (
     <div className="speech-to-text-container">
       <div className="control-panel">
-        <div className="language-selector">
-          <select
-            value={selectedLanguage}
-            onChange={(e) => setSelectedLanguage(e.target.value)}
-            className="language-select"
-          >
-            <option value="en">English 🇺🇸</option>
-            <option value="es">Español 🇪🇸</option>
-            <option value="fr">Français 🇫🇷</option>
-          </select>
-        </div>
         <button
           className={`record-button ${isRecording ? 'recording' : ''}`}
           onClick={isRecording ? handleStopRecording : handleStartRecording}
@@ -105,7 +155,7 @@ const SpeechToText = () => {
       <div className="current-transcription">
         <h3>Current Transcription</h3>
         <div className="transcription-box">
-          {currentText || 'Start speaking...'}
+          {currentText || (isRecording ? 'Listening...' : 'Click "Start Recording" to begin...')}
         </div>
       </div>
 
